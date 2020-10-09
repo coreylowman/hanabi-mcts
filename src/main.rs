@@ -5,13 +5,11 @@ mod hanabi_env;
 // mod mcts;
 
 use env::Env;
-use hanabi_env::{Action, Card, CardCollection, CardStatus, HanabiEnv, PublicInfo};
+use hanabi_env::{Action, Card, CardCollection, HanabiEnv, Hints, PublicInfo};
 
 use crate::rand::prelude::SliceRandom;
 use crate::rand::rngs::StdRng;
 use crate::rand::SeedableRng;
-
-use std::time::Instant;
 
 fn policy(root_public_info: &PublicInfo, mut rng: &mut StdRng) -> Action {
     let mut actions = Vec::new();
@@ -19,13 +17,7 @@ fn policy(root_public_info: &PublicInfo, mut rng: &mut StdRng) -> Action {
     let mut visits = Vec::new();
 
     for _ in 0..100_000 {
-        assert!(root_public_info.player_hand.is_none());
-        assert!(root_public_info.opponent_hand.is_some());
-
-        let mut env = HanabiEnv::determinize(&root_public_info, &mut rng);
-        let action = *env.actions().choose(&mut rng).unwrap();
-        env.step(&action, &mut rng);
-        let reward = rollout(&env.public_info(false), false, &mut rng);
+        let (action, reward) = rollout(root_public_info, &mut rng);
 
         match actions.iter().position(|&a| a == action) {
             Some(i) => {
@@ -57,33 +49,38 @@ fn policy(root_public_info: &PublicInfo, mut rng: &mut StdRng) -> Action {
     actions[best_i]
 }
 
-fn rollout(
-    root_public_info: &PublicInfo,
-    mut player_perspective: bool,
-    mut rng: &mut StdRng,
-) -> f32 {
-    assert!(root_public_info.player_hand.is_some());
-    assert!(root_public_info.opponent_hand.is_none());
+fn rollout(root_public_info: &PublicInfo, mut rng: &mut StdRng) -> (Action, f32) {
+    assert!(root_public_info.player_hand.is_none());
+    assert!(root_public_info.opponent_hand.is_some());
 
     let mut rollout_env = HanabiEnv::determinize(&root_public_info, &mut rng);
-    while !rollout_env.is_over() {
-        let actions = rollout_env.actions();
+    let action = *rollout_env.actions().choose(&mut rng).unwrap();
+    rollout_env.step(&action, &mut rng);
+
+    let mut player_perspective = false;
+
+    loop {
+        if rollout_env.is_over() {
+            break;
+        }
+
+        let public_info = rollout_env.public_info(player_perspective); // TODO should this be always from players perspective or just from same players?
+
+        let step_env = HanabiEnv::determinize(&public_info, &mut rng);
+        let actions = step_env.actions();
         let action = actions.choose(&mut rng).unwrap();
 
         rollout_env.step(action, &mut rng);
-        player_perspective = !player_perspective;
 
-        let new_public_info = rollout_env.public_info(player_perspective);
-        rollout_env = HanabiEnv::determinize(&new_public_info, &mut rng);
+        player_perspective = !player_perspective;
     }
 
-    // println!("{} {}", rollout_env.reward(), rollout_env.raw_score());
-    rollout_env.reward()
+    (action, rollout_env.reward())
 }
 
 fn main() {
     println!("Card {}", std::mem::size_of::<Card>());
-    println!("CardStatus {}", std::mem::size_of::<CardStatus>());
+    println!("Hints {}", std::mem::size_of::<Hints>());
     println!("CardCollection {}", std::mem::size_of::<CardCollection>());
     println!("Env {}", std::mem::size_of::<HanabiEnv>());
     println!("PublicInfo {}", std::mem::size_of::<PublicInfo>());
