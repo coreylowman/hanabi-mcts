@@ -55,7 +55,7 @@ fn policy(public_info: PublicInfo, private_info: PrivateInfo, mut rng: &mut StdR
     let mut rewards = Vec::new();
     let mut visits = Vec::new();
 
-    for _ in 0..200_000 {
+    for _ in 0..10_000 {
         let (action, reward) = rollout(public_info.clone(), private_info.clone(), &mut rng);
 
         match actions.iter().position(|&a| a == action) {
@@ -76,10 +76,10 @@ fn policy(public_info: PublicInfo, private_info: PrivateInfo, mut rng: &mut StdR
     for i in 0..rewards.len() {
         let total_reward = rewards[i];
         let mean_reward = total_reward / visits[i] as f32;
-        println!(
-            "{:?}: {} ({} / {})",
-            actions[i], mean_reward, total_reward, visits[i],
-        );
+        // println!(
+        //     "{:?}: {} ({} / {})",
+        //     actions[i], mean_reward, total_reward, visits[i],
+        // );
         if mean_reward > best_score {
             best_i = i;
             best_score = mean_reward;
@@ -89,15 +89,7 @@ fn policy(public_info: PublicInfo, private_info: PrivateInfo, mut rng: &mut StdR
     actions[best_i]
 }
 
-fn main() {
-    println!("Card {}", std::mem::size_of::<Card>());
-    println!("Hint {}", std::mem::size_of::<Hint>());
-    println!("CardCollection {}", std::mem::size_of::<CardCollection>());
-    println!("Env {}", std::mem::size_of::<HanabiEnv>());
-    println!("PublicInfo {}", std::mem::size_of::<PublicInfo>());
-    println!("PrivateInfo {}", std::mem::size_of::<PrivateInfo>());
-    println!();
-
+fn describe_game() {
     let mut rng = StdRng::seed_from_u64(0);
 
     loop {
@@ -116,4 +108,42 @@ fn main() {
         }
         println!("{} {}", env.reward(), env.fireworks.iter().sum::<u8>());
     }
+}
+
+fn evaluate() {
+    let mut rng = StdRng::seed_from_u64(0);
+
+    let mut rewards = Vec::new();
+
+    loop {
+        let mut env = HanabiEnv::new(&mut rng);
+
+        while !env.is_over() {
+            let action = policy(env.public_info(), env.private_info(true), &mut rng);
+            env.step(&action, &mut rng);
+        }
+
+        rewards.push(env.fireworks.iter().sum::<u8>() as f32);
+
+        let total_reward = rewards.iter().sum::<f32>();
+        println!(
+            "{} ({} / {})",
+            total_reward / rewards.len() as f32,
+            total_reward,
+            rewards.len()
+        );
+    }
+}
+
+fn main() {
+    println!("Card {}", std::mem::size_of::<Card>());
+    println!("Hint {}", std::mem::size_of::<Hint>());
+    println!("CardCollection {}", std::mem::size_of::<CardCollection>());
+    println!("Env {}", std::mem::size_of::<HanabiEnv>());
+    println!("PublicInfo {}", std::mem::size_of::<PublicInfo>());
+    println!("PrivateInfo {}", std::mem::size_of::<PrivateInfo>());
+    println!();
+
+    // describe_game();
+    evaluate();
 }

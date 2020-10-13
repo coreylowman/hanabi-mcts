@@ -141,43 +141,34 @@ impl CardCollection {
         }
     }
 
-    fn pop_match<R: Rng>(&mut self, hint: Hint, mut rng: &mut R) -> Result<Option<Card>, String> {
-        // TODO remove error handling from here once determinize_hints works
+    fn pop_match<R: Rng>(&mut self, hint: Hint, mut rng: &mut R) -> Option<Card> {
         match hint {
-            Hint(Some(color), Some(suit)) => Ok(Some(self.remove(Card(color, suit)))),
+            Hint(Some(color), Some(suit)) => Some(self.remove(Card(color, suit))),
             Hint(Some(color), None) => {
-                let color_total = self.total_of_color(color);
-                if color_total == 0 {
-                    return Err("Not enough of color".to_string());
-                }
-                let card_index = rng.gen_range(0, color_total);
+                let card_index = rng.gen_range(0, self.total_of_color(color));
                 let mut total = 0;
                 for i in 0..5 {
                     let ci = 5 * (color as usize) + i;
                     if card_index < total + self.counts[ci] {
-                        return Ok(Some(self.remove(Card::from_id(ci as u8))));
+                        return Some(self.remove(Card::from_id(ci as u8)));
                     }
                     total += self.counts[ci];
                 }
-                Ok(None)
+                None
             }
             Hint(None, Some(suit)) => {
-                let suit_total = self.total_of_suit(suit);
-                if suit_total == 0 {
-                    return Err("Not enough of suit".to_string());
-                }
-                let card_index = rng.gen_range(0, suit_total);
+                let card_index = rng.gen_range(0, self.total_of_suit(suit));
                 let mut total = 0;
                 for i in 0..5 {
                     let ci = 5 * i + suit as usize;
                     if card_index < total + self.counts[ci] {
-                        return Ok(Some(self.remove(Card::from_id(ci as u8))));
+                        return Some(self.remove(Card::from_id(ci as u8)));
                     }
                     total += self.counts[ci];
                 }
-                Ok(None)
+                None
             }
-            Hint(None, None) => Ok(self.pop(&mut rng)),
+            Hint(None, None) => self.pop(&mut rng),
         }
     }
 
@@ -192,40 +183,45 @@ impl CardCollection {
 
 fn determinize_hints<R: Rng>(
     deck: &mut CardCollection,
-    root_hints: [Option<Hint>; 5],
+    hints: [Option<Hint>; 5],
     mut rng: &mut R,
 ) -> [Option<Card>; 5] {
-    // TODO step 1: figure out exactly which cards are available for each hint
-    let mut cards_available = Vec::new();
-    for hint in root_hints.iter() {
-        cards_available.push(Vec::new());
-        if hint.is_some() {}
+    // go to first card
+    let mut i = 0;
+    while hints[i].is_none() && i < 5 {
+        i += 1;
     }
-    // TODO step 2: do a DFS to determine all possible hands
-    // TODO step 3: randomly choose from one of the possible hands
-    let mut hints = root_hints.clone();
+
     let mut cards = [None; 5];
-    while hints.iter().any(|h| h.is_some()) {
-        let (i, _) = hints
-            .iter()
-            .enumerate()
-            .filter(|(_, h)| h.is_some())
-            .map(|(i, &h)| (i, deck.num_cards_matching(h.unwrap())))
-            .min_by_key(|&(_i, n)| n)
-            .unwrap();
-        match deck.pop_match(hints[i].unwrap(), &mut rng) {
-            Ok(c) => cards[i] = c,
-            Err(e) => {
-                println!("{:?}", root_hints);
-                for h in root_hints.iter() {
-                    println!("{:?} {}", h, orig_deck.num_cards_matching(h.unwrap()));
+    while i < 5 {
+        // if we've hit a point where there are no matching cards, start over
+        // TODO optimize this so we don't throw away good work!
+        if hints[i].is_some() && deck.num_cards_matching(hints[i].unwrap()) == 0 {
+            // remove any cards we've set
+            for j in 0..5 {
+                if cards[j].is_some() {
+                    deck.add(cards[j].unwrap());
+                    cards[j] = None;
                 }
-                println!("{:?}", cards);
-                println!("{:?}", deck.counts);
-                panic!(e);
             }
-        };
-        hints[i] = None;
+
+            // go to first card
+            i = 0;
+            while hints[i].is_none() && i < 5 {
+                i += 1;
+            }
+        }
+
+        // pop a card
+        cards[i] = deck.pop_match(hints[i].unwrap(), &mut rng);
+
+        // go to next card
+        loop {
+            i += 1;
+            if i == 5 || hints[i].is_some() {
+                break;
+            }
+        }
     }
     cards
 }
