@@ -35,6 +35,58 @@ pub struct Card {
     suit: Suit,
 }
 
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub struct Hint {
+    color: [bool; 5],
+    suit: [bool; 5],
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Action {
+    ColorHint(Color),
+    SuitHint(Suit),
+    Discard(Hint),
+    Play(Hint),
+}
+
+#[derive(Copy, Clone)]
+pub struct CardCollection {
+    total: u8,
+    counts: [u8; 25],
+}
+
+#[derive(Clone)]
+pub struct HanabiEnv {
+    pub player_hand: [Option<Card>; 5],
+    pub player_hints: [Option<Hint>; 5],
+    pub opponent_hand: [Option<Card>; 5],
+    pub opponent_hints: [Option<Hint>; 5],
+    pub deck: CardCollection,
+    pub discard: CardCollection,
+    pub blue_tokens: u8,
+    pub black_tokens: u8,
+    pub fireworks: [u8; 5],
+    pub last_round: bool,
+    pub last_round_turns_taken: u8,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PrivateInfo {
+    pub opponent_hand: [Option<Card>; 5],
+}
+
+#[derive(Clone)]
+pub struct PublicInfo {
+    pub player_hints: [Option<Hint>; 5],
+    pub opponent_hints: [Option<Hint>; 5],
+    pub discard: CardCollection,
+    pub blue_tokens: u8,
+    pub black_tokens: u8,
+    pub fireworks: [u8; 5],
+    pub last_round: bool,
+    pub last_round_turns_taken: u8,
+}
+
 impl Card {
     fn id(&self) -> u8 {
         Card::parts_id(self.color as u8, self.suit as u8)
@@ -74,12 +126,6 @@ impl Card {
         let s = id % 5;
         Card::from_parts(c, s)
     }
-}
-
-#[derive(Copy, Clone, PartialEq, Eq)]
-pub struct Hint {
-    color: [bool; 5],
-    suit: [bool; 5],
 }
 
 impl std::fmt::Debug for Hint {
@@ -138,20 +184,6 @@ impl Hint {
     fn matches(&self, card: Card) -> bool {
         self.color[card.color as usize] && self.suit[card.suit as usize]
     }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum Action {
-    ColorHint(Color),
-    SuitHint(Suit),
-    Discard(Hint),
-    Play(Hint),
-}
-
-#[derive(Copy, Clone)]
-pub struct CardCollection {
-    total: u8,
-    counts: [u8; 25],
 }
 
 impl CardCollection {
@@ -296,38 +328,6 @@ fn determinize_hints<R: Rng>(
     (cards, prob)
 }
 
-#[derive(Clone)]
-pub struct HanabiEnv {
-    pub player_hand: [Option<Card>; 5],
-    pub opponent_hand: [Option<Card>; 5],
-    pub player_hints: [Option<Hint>; 5],
-    pub opponent_hints: [Option<Hint>; 5],
-    pub deck: CardCollection,
-    pub discard: CardCollection,
-    pub blue_tokens: u8,
-    pub black_tokens: u8,
-    pub fireworks: [u8; 5],
-    pub last_round: bool,
-    pub last_round_turns_taken: u8,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PrivateInfo {
-    pub opponent_hand: [Option<Card>; 5],
-}
-
-#[derive(Clone)]
-pub struct PublicInfo {
-    pub player_hints: [Option<Hint>; 5],
-    pub opponent_hints: [Option<Hint>; 5],
-    pub discard: CardCollection,
-    pub blue_tokens: u8,
-    pub black_tokens: u8,
-    pub fireworks: [u8; 5],
-    pub last_round: bool,
-    pub last_round_turns_taken: u8,
-}
-
 impl HanabiEnv {
     fn discard_at(&mut self, i: usize) {
         self.discard.add(self.player_hand[i].unwrap());
@@ -447,8 +447,8 @@ impl Env for HanabiEnv {
         deck.remove_hand(&opponent_private_info.opponent_hand);
         Self {
             player_hand: opponent_private_info.opponent_hand,
-            opponent_hand: player_private_info.opponent_hand,
             player_hints: public_info.player_hints,
+            opponent_hand: player_private_info.opponent_hand,
             opponent_hints: public_info.opponent_hints,
             deck: deck,
             discard: public_info.discard,
@@ -480,8 +480,8 @@ impl Env for HanabiEnv {
 
         Self {
             player_hand: player_hand,
-            player_hints: [Some(Hint::empty()); 5],
             opponent_hand: opponent_hand,
+            player_hints: [Some(Hint::empty()); 5],
             opponent_hints: [Some(Hint::empty()); 5],
             deck: deck,
             discard: CardCollection::empty(),
