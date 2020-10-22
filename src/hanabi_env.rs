@@ -256,22 +256,20 @@ impl CardCollection {
     }
 
     fn pop_match<R: Rng>(&mut self, hint: &Hint, mut rng: &mut R) -> Option<(Card, f32)> {
-        let mut matches = Vec::with_capacity(50);
+        let mut matches = self.clone();
         for i in 0..25 {
             let card = Card::from_id(i as u8);
-            if self.counts[i] > 0 && hint.matches(card) {
-                for _ in 0..self.counts[i] {
-                    matches.push(card);
-                }
+            if self.counts[i] > 0 && !hint.matches(card) {
+                matches.total -= matches.counts[i];
+                matches.counts[i] = 0;
             }
         }
-        if matches.len() == 0 {
-            None
-        } else {
-            Some((
-                self.remove(*matches.choose(&mut rng).unwrap()),
-                1.0 / matches.len() as f32, // TODO for theory of mind, change this probability based on what they play
-            ))
+        match matches.pop(&mut rng) {
+            Some(card) => Some((
+                self.remove(card),
+                1.0 / (matches.total + 1) as f32, // TODO for theory of mind, change this probabilty based on what they play
+            )),
+            None => None,
         }
     }
 }
