@@ -30,17 +30,22 @@ const COLORS: [Color; 5] = [
 const SUITS: [Suit; 5] = [Suit::One, Suit::Two, Suit::Three, Suit::Four, Suit::Five];
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Card(Color, Suit);
+pub struct Card {
+    color: Color,
+    suit: Suit,
+}
 
 impl Card {
     fn id(&self) -> u8 {
-        self.0 as u8 * 5 + self.1 as u8
+        Card::parts_id(self.color as u8, self.suit as u8)
     }
 
-    fn from_id(id: u8) -> Card {
-        let c = id / 5;
-        let s = id % 5;
-        let color = match c {
+    fn parts_id(color: u8, suit: u8) -> u8 {
+        color * 5 + suit
+    }
+
+    fn from_parts(color: u8, suit: u8) -> Card {
+        let color = match color {
             0 => Color::White,
             1 => Color::Red,
             2 => Color::Blue,
@@ -49,7 +54,7 @@ impl Card {
             _ => panic!(),
         };
 
-        let suit = match s {
+        let suit = match suit {
             0 => Suit::One,
             1 => Suit::Two,
             2 => Suit::Three,
@@ -58,12 +63,82 @@ impl Card {
             _ => panic!(),
         };
 
-        Card(color, suit)
+        Card {
+            color: color,
+            suit: suit,
+        }
+    }
+
+    fn from_id(id: u8) -> Card {
+        let c = id / 5;
+        let s = id % 5;
+        Card::from_parts(c, s)
     }
 }
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub struct Hint(Option<Color>, Option<Suit>);
+#[derive(Copy, Clone, PartialEq, Eq)]
+pub struct Hint {
+    color: [bool; 5],
+    suit: [bool; 5],
+}
+
+impl std::fmt::Debug for Hint {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Hint")
+            .field(
+                &self
+                    .color
+                    .iter()
+                    .map(|&b| (b as u8).to_string())
+                    .collect::<Vec<String>>()
+                    .join(""),
+            )
+            .field(
+                &self
+                    .suit
+                    .iter()
+                    .map(|&b| (b as u8).to_string())
+                    .collect::<Vec<String>>()
+                    .join(""),
+            )
+            .finish()
+    }
+}
+
+impl Hint {
+    fn empty() -> Self {
+        Self {
+            color: [true; 5],
+            suit: [true; 5],
+        }
+    }
+
+    fn set_true_color(&mut self, color: Color) {
+        for i in 0..5 {
+            self.color[i] = false;
+        }
+        self.color[color as usize] = true;
+    }
+
+    fn disable_color(&mut self, color: Color) {
+        self.color[color as usize] = false;
+    }
+
+    fn set_true_suit(&mut self, suit: Suit) {
+        for i in 0..5 {
+            self.suit[i] = false;
+        }
+        self.suit[suit as usize] = true;
+    }
+
+    fn disable_suit(&mut self, suit: Suit) {
+        self.suit[suit as usize] = false;
+    }
+
+    fn matches(&self, card: Card) -> bool {
+        self.color[card.color as usize] && self.suit[card.suit as usize]
+    }
+}
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum Action {
@@ -111,6 +186,22 @@ impl CardCollection {
         card
     }
 
+    fn remove_hand(&mut self, hand: &[Option<Card>; 5]) {
+        for opt_card in hand.iter() {
+            if opt_card.is_some() {
+                self.remove(opt_card.unwrap());
+            }
+        }
+    }
+
+    fn remove_fireworks(&mut self, fireworks: &[u8; 5]) {
+        for color_i in 0..5u8 {
+            for suit_i in 0..fireworks[color_i as usize] {
+                self.remove(Card::from_id((color_i * 5 + suit_i) as u8));
+            }
+        }
+    }
+
     fn subtract(&mut self, other: &Self) {
         self.total -= other.total;
         for i in 0..25 {
@@ -132,60 +223,32 @@ impl CardCollection {
         None
     }
 
-    fn num_cards_matching(&self, hint: Hint) -> u8 {
-        match hint {
-            Hint(Some(color), Some(suit)) => self.counts[Card(color, suit).id() as usize],
-            Hint(Some(color), None) => self.total_of_color(color),
-            Hint(None, Some(suit)) => self.total_of_suit(suit),
-            Hint(None, None) => self.total,
-        }
-    }
-
-    fn pop_match<R: Rng>(&mut self, hint: Hint, mut rng: &mut R) -> Option<Card> {
-        match hint {
-            Hint(Some(color), Some(suit)) => Some(self.remove(Card(color, suit))),
-            Hint(Some(color), None) => {
-                let card_index = rng.gen_range(0, self.total_of_color(color));
-                let mut total = 0;
-                for i in 0..5 {
-                    let ci = 5 * (color as usize) + i;
-                    if card_index < total + self.counts[ci] {
-                        return Some(self.remove(Card::from_id(ci as u8)));
-                    }
-                    total += self.counts[ci];
+    fn pop_match<R: Rng>(&mut self, hint: &Hint, mut rng: &mut R) -> Option<(Card, f32)> {
+        let mut matches = Vec::with_capacity(50);
+        for i in 0..25 {
+            let card = Card::from_id(i as u8);
+            if self.counts[i] > 0 && hint.matches(card) {
+                for _ in 0..self.counts[i] {
+                    matches.push(card);
                 }
-                None
             }
-            Hint(None, Some(suit)) => {
-                let card_index = rng.gen_range(0, self.total_of_suit(suit));
-                let mut total = 0;
-                for i in 0..5 {
-                    let ci = 5 * i + suit as usize;
-                    if card_index < total + self.counts[ci] {
-                        return Some(self.remove(Card::from_id(ci as u8)));
-                    }
-                    total += self.counts[ci];
-                }
-                None
-            }
-            Hint(None, None) => self.pop(&mut rng),
         }
-    }
-
-    fn total_of_color(&self, color: Color) -> u8 {
-        (0..5).map(|i| self.counts[5 * (color as usize) + i]).sum()
-    }
-
-    fn total_of_suit(&self, suit: Suit) -> u8 {
-        (0..5).map(|i| self.counts[5 * i + suit as usize]).sum()
+        if matches.len() == 0 {
+            None
+        } else {
+            Some((
+                self.remove(*matches.choose(&mut rng).unwrap()),
+                1.0 / matches.len() as f32, // TODO for theory of mind, change this probability based on what they play
+            ))
+        }
     }
 }
 
 fn determinize_hints<R: Rng>(
     deck: &mut CardCollection,
-    hints: [Option<Hint>; 5],
+    hints: &[Option<Hint>; 5],
     mut rng: &mut R,
-) -> [Option<Card>; 5] {
+) -> ([Option<Card>; 5], f32) {
     // go to first card
     let mut i = 0;
     while hints[i].is_none() && i < 5 {
@@ -193,27 +256,33 @@ fn determinize_hints<R: Rng>(
     }
 
     let mut cards = [None; 5];
+    let mut prob = 1.0;
     while i < 5 {
-        // if we've hit a point where there are no matching cards, start over
-        // TODO optimize this so we don't throw away good work!
-        if hints[i].is_some() && deck.num_cards_matching(hints[i].unwrap()) == 0 {
-            // remove any cards we've set
-            for j in 0..5 {
-                if cards[j].is_some() {
-                    deck.add(cards[j].unwrap());
-                    cards[j] = None;
-                }
+        match deck.pop_match(&hints[i].unwrap(), &mut rng) {
+            Some((card, p)) => {
+                cards[i] = Some(card);
+                prob *= p;
             }
+            None => {
+                // there are no matching cards! start over
+                // remove any cards we've set
+                // TODO optimize this so we don't throw away good work!
+                prob = 1.0;
+                for j in 0..5 {
+                    if cards[j].is_some() {
+                        deck.add(cards[j].unwrap());
+                        cards[j] = None;
+                    }
+                }
 
-            // go to first card
-            i = 0;
-            while hints[i].is_none() && i < 5 {
-                i += 1;
+                // go to first card
+                i = 0;
+                while hints[i].is_none() && i < 5 {
+                    i += 1;
+                }
+                continue;
             }
         }
-
-        // pop a card
-        cards[i] = deck.pop_match(hints[i].unwrap(), &mut rng);
 
         // go to next card
         loop {
@@ -223,7 +292,8 @@ fn determinize_hints<R: Rng>(
             }
         }
     }
-    cards
+
+    (cards, prob)
 }
 
 #[derive(Clone)]
@@ -259,39 +329,6 @@ pub struct PublicInfo {
 }
 
 impl HanabiEnv {
-    pub fn new<R: Rng>(mut rng: &mut R) -> Self {
-        let mut deck = CardCollection::starting_deck();
-
-        let player_hand = [
-            deck.pop(&mut rng),
-            deck.pop(&mut rng),
-            deck.pop(&mut rng),
-            deck.pop(&mut rng),
-            deck.pop(&mut rng),
-        ];
-        let opponent_hand = [
-            deck.pop(&mut rng),
-            deck.pop(&mut rng),
-            deck.pop(&mut rng),
-            deck.pop(&mut rng),
-            deck.pop(&mut rng),
-        ];
-
-        Self {
-            player_hand: player_hand,
-            player_hints: [Some(Hint(None, None)); 5],
-            opponent_hand: opponent_hand,
-            opponent_hints: [Some(Hint(None, None)); 5],
-            deck: deck,
-            discard: CardCollection::empty(),
-            blue_tokens: 8,
-            black_tokens: 4,
-            fireworks: [0; 5],
-            last_round: false,
-            last_round_turns_taken: 0,
-        }
-    }
-
     fn discard_at(&mut self, i: usize) {
         self.discard.add(self.player_hand[i].unwrap());
         self.player_hand[i] = None;
@@ -304,7 +341,7 @@ impl HanabiEnv {
             self.last_round = true;
             self.player_hints[i] = None;
         } else {
-            self.player_hints[i] = Some(Hint(None, None));
+            self.player_hints[i] = Some(Hint::empty());
         }
     }
 
@@ -325,21 +362,13 @@ impl HanabiEnv {
         println!("{:?}", self.opponent_hints);
     }
 
-    fn hint_matches(&self, hints: &[Option<Hint>; 5], hint: Hint) -> Vec<usize> {
+    fn hint_matches(&self, hints: &[Option<Hint>; 5], hint: &Option<Hint>) -> Vec<usize> {
         hints
             .iter()
             .enumerate()
-            .filter(|(_, h)| h.is_some() && h.unwrap() == hint)
+            .filter(|&(_, h)| h == hint)
             .map(|(i, _)| i)
             .collect()
-    }
-}
-
-impl HasEnd for HanabiEnv {
-    fn is_over(&self) -> bool {
-        self.black_tokens == 1
-            || self.fireworks.iter().sum::<u8>() == 25
-            || (self.deck.total == 0 && self.last_round && self.last_round_turns_taken == 2)
     }
 }
 
@@ -356,13 +385,40 @@ impl HasEnd for PublicInfo {
     }
 }
 
+impl HasEnd for HanabiEnv {
+    fn is_over(&self) -> bool {
+        // self.black_tokens == 1
+        //     || self.fireworks.iter().sum::<u8>() == 25
+        //     || (self.deck.total == 0 && self.last_round && self.last_round_turns_taken == 2)
+        self.public_info().is_over()
+    }
+}
+
+fn possible_future_rewards(fireworks: &[u8; 5], discard: &CardCollection) -> u8 {
+    let mut cards_in_play = CardCollection::starting_deck();
+    cards_in_play.subtract(discard);
+
+    let mut future_rewards = 0;
+    for color in 0..5 {
+        let played_suit = fireworks[color];
+        for suit in played_suit..5 {
+            if cards_in_play.counts[Card::parts_id(color as u8, suit as u8) as usize] == 0 {
+                break;
+            }
+            future_rewards += 1;
+        }
+    }
+    future_rewards
+}
+
 impl HasReward for PublicInfo {
     type Reward = f32;
 
     fn reward(&self) -> Self::Reward {
         let reward = (self.fireworks.iter().sum::<u8>() as f32) / 25.0;
         let black_tokens = (self.black_tokens as f32 - 1.0) / 3.0;
-        reward + black_tokens
+        let future_reward = possible_future_rewards(&self.fireworks, &self.discard) as f32 / 25.0;
+        reward + black_tokens * future_reward
     }
 }
 
@@ -370,9 +426,7 @@ impl HasReward for HanabiEnv {
     type Reward = f32;
 
     fn reward(&self) -> Self::Reward {
-        let reward = (self.fireworks.iter().sum::<u8>() as f32) / 25.0;
-        let black_tokens = (self.black_tokens as f32 - 1.0) / 3.0;
-        reward + black_tokens
+        self.public_info().reward()
     }
 }
 
@@ -381,14 +435,80 @@ impl Env for HanabiEnv {
     type PrivateInfo = PrivateInfo;
     type Action = Action;
 
-    fn private_info(&self, player_perspective: bool) -> Self::PrivateInfo {
-        PrivateInfo {
-            opponent_hand: if player_perspective {
-                self.opponent_hand
-            } else {
-                self.player_hand
-            },
+    fn new(
+        public_info: &Self::PublicInfo,
+        player_private_info: &Self::PrivateInfo,
+        opponent_private_info: &Self::PrivateInfo,
+    ) -> Self {
+        let mut deck = CardCollection::starting_deck();
+        deck.subtract(&public_info.discard);
+        deck.remove_fireworks(&public_info.fireworks);
+        deck.remove_hand(&player_private_info.opponent_hand);
+        deck.remove_hand(&opponent_private_info.opponent_hand);
+        Self {
+            player_hand: opponent_private_info.opponent_hand,
+            opponent_hand: player_private_info.opponent_hand,
+            player_hints: public_info.player_hints,
+            opponent_hints: public_info.opponent_hints,
+            deck: deck,
+            discard: public_info.discard,
+            blue_tokens: public_info.blue_tokens,
+            black_tokens: public_info.black_tokens,
+            fireworks: public_info.fireworks,
+            last_round: public_info.last_round,
+            last_round_turns_taken: public_info.last_round_turns_taken,
         }
+    }
+
+    fn random<R: Rng>(mut rng: &mut R) -> Self {
+        let mut deck = CardCollection::starting_deck();
+
+        let player_hand = [
+            deck.pop(&mut rng),
+            deck.pop(&mut rng),
+            deck.pop(&mut rng),
+            deck.pop(&mut rng),
+            deck.pop(&mut rng),
+        ];
+        let opponent_hand = [
+            deck.pop(&mut rng),
+            deck.pop(&mut rng),
+            deck.pop(&mut rng),
+            deck.pop(&mut rng),
+            deck.pop(&mut rng),
+        ];
+
+        Self {
+            player_hand: player_hand,
+            player_hints: [Some(Hint::empty()); 5],
+            opponent_hand: opponent_hand,
+            opponent_hints: [Some(Hint::empty()); 5],
+            deck: deck,
+            discard: CardCollection::empty(),
+            blue_tokens: 8,
+            black_tokens: 4,
+            fireworks: [0; 5],
+            last_round: false,
+            last_round_turns_taken: 0,
+        }
+    }
+
+    fn sample_opponent_info<R: Rng>(
+        public_info: &Self::PublicInfo,
+        player_private_info: &Self::PrivateInfo,
+        mut rng: &mut R,
+    ) -> (Self::PrivateInfo, f32) {
+        let mut deck = CardCollection::starting_deck();
+        deck.subtract(&public_info.discard);
+        deck.remove_fireworks(&public_info.fireworks);
+        deck.remove_hand(&player_private_info.opponent_hand);
+        let (player_hand, prob) = determinize_hints(&mut deck, &public_info.player_hints, &mut rng);
+        (
+            PrivateInfo {
+                opponent_hand: player_hand,
+            },
+            prob,
+        )
     }
 
     fn public_info(&self) -> Self::PublicInfo {
@@ -404,40 +524,13 @@ impl Env for HanabiEnv {
         }
     }
 
-    fn determinize<R: Rng>(
-        public_info: &Self::PublicInfo,
-        private_info: &Self::PrivateInfo,
-        mut rng: &mut R,
-    ) -> Self {
-        let mut deck = CardCollection::starting_deck();
-        deck.subtract(&public_info.discard);
-
-        for color_i in 0..5u8 {
-            for suit_i in 0..public_info.fireworks[color_i as usize] {
-                deck.remove(Card::from_id((color_i * 5 + suit_i) as u8));
-            }
-        }
-
-        for opt_card in private_info.opponent_hand.iter() {
-            if opt_card.is_some() {
-                deck.remove(opt_card.unwrap());
-            }
-        }
-
-        let player_hand = determinize_hints(&mut deck, public_info.player_hints, &mut rng);
-
-        Self {
-            player_hand: player_hand,
-            player_hints: public_info.player_hints,
-            opponent_hand: private_info.opponent_hand,
-            opponent_hints: public_info.opponent_hints,
-            deck: deck,
-            discard: public_info.discard,
-            blue_tokens: public_info.blue_tokens,
-            black_tokens: public_info.black_tokens,
-            fireworks: public_info.fireworks,
-            last_round: public_info.last_round,
-            last_round_turns_taken: public_info.last_round_turns_taken,
+    fn private_info(&self, player_perspective: bool) -> Self::PrivateInfo {
+        PrivateInfo {
+            opponent_hand: if player_perspective {
+                self.opponent_hand
+            } else {
+                self.player_hand
+            },
         }
     }
 
@@ -464,7 +557,7 @@ impl Env for HanabiEnv {
                 let num_of_color = self
                     .opponent_hand
                     .iter()
-                    .filter(|c| c.is_some() && c.unwrap().0 == color)
+                    .filter(|c| c.is_some() && c.unwrap().color == color)
                     .count();
                 if num_of_color > 0 {
                     actions.push(Action::ColorHint(color));
@@ -476,7 +569,7 @@ impl Env for HanabiEnv {
                 let num_in_suit = self
                     .opponent_hand
                     .iter()
-                    .filter(|c| c.is_some() && c.unwrap().1 == suit)
+                    .filter(|c| c.is_some() && c.unwrap().suit == suit)
                     .count();
                 if num_in_suit > 0 {
                     actions.push(Action::SuitHint(suit));
@@ -491,37 +584,50 @@ impl Env for HanabiEnv {
         match action {
             &Action::ColorHint(color) => {
                 for i in 0..5 {
-                    if self.opponent_hand[i].is_some() && self.opponent_hand[i].unwrap().0 == color
-                    {
-                        self.opponent_hints[i] = self.opponent_hints[i].map(|mut h| {
-                            h.0 = Some(color);
-                            h
-                        });
+                    if let Some(card) = self.opponent_hand[i] {
+                        if card.color == color {
+                            self.opponent_hints[i] = self.opponent_hints[i].map(|mut h| {
+                                h.set_true_color(color);
+                                h
+                            });
+                        } else {
+                            self.opponent_hints[i] = self.opponent_hints[i].map(|mut h| {
+                                h.disable_color(color);
+                                h
+                            });
+                        }
                     }
                 }
                 self.blue_tokens -= 1;
             }
             &Action::SuitHint(suit) => {
                 for i in 0..5 {
-                    if self.opponent_hand[i].is_some() && self.opponent_hand[i].unwrap().1 == suit {
-                        self.opponent_hints[i] = self.opponent_hints[i].map(|mut h| {
-                            h.1 = Some(suit);
-                            h
-                        });
+                    if let Some(card) = self.opponent_hand[i] {
+                        if card.suit == suit {
+                            self.opponent_hints[i] = self.opponent_hints[i].map(|mut h| {
+                                h.set_true_suit(suit);
+                                h
+                            });
+                        } else {
+                            self.opponent_hints[i] = self.opponent_hints[i].map(|mut h| {
+                                h.disable_suit(suit);
+                                h
+                            });
+                        }
                     }
                 }
                 self.blue_tokens -= 1;
             }
             &Action::Play(hint) => {
                 let i = *self
-                    .hint_matches(&self.player_hints, hint)
+                    .hint_matches(&self.player_hints, &Some(hint))
                     .choose(&mut rng)
                     .unwrap();
                 let card = self.player_hand[i].unwrap();
-                if self.fireworks[card.0 as usize] == (card.1 as u8) {
-                    self.fireworks[card.0 as usize] += 1;
+                if self.fireworks[card.color as usize] == (card.suit as u8) {
+                    self.fireworks[card.color as usize] += 1;
 
-                    if self.fireworks[card.0 as usize] == 5 {
+                    if self.fireworks[card.color as usize] == 5 {
                         self.blue_tokens += 1;
                         if self.blue_tokens > 8 {
                             self.blue_tokens = 8;
@@ -535,7 +641,7 @@ impl Env for HanabiEnv {
             }
             &Action::Discard(hint) => {
                 let i = *self
-                    .hint_matches(&self.player_hints, hint)
+                    .hint_matches(&self.player_hints, &Some(hint))
                     .choose(&mut rng)
                     .unwrap();
                 self.discard_at(i);
@@ -550,5 +656,61 @@ impl Env for HanabiEnv {
 
         std::mem::swap(&mut self.player_hand, &mut self.opponent_hand);
         std::mem::swap(&mut self.player_hints, &mut self.opponent_hints);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_future_reward() {
+        let mut fireworks = [0; 5];
+        let mut discard = CardCollection::empty();
+
+        assert_eq!(possible_future_rewards(&fireworks, &discard), 25);
+
+        discard.add(Card {
+            color: Color::White,
+            suit: Suit::One,
+        });
+        discard.add(Card {
+            color: Color::White,
+            suit: Suit::One,
+        });
+        discard.add(Card {
+            color: Color::White,
+            suit: Suit::One,
+        });
+
+        assert_eq!(possible_future_rewards(&fireworks, &discard), 20);
+
+        discard.add(Card {
+            color: Color::Green,
+            suit: Suit::One,
+        });
+
+        assert_eq!(possible_future_rewards(&fireworks, &discard), 20);
+
+        discard.add(Card {
+            color: Color::Yellow,
+            suit: Suit::Three,
+        });
+        discard.add(Card {
+            color: Color::Yellow,
+            suit: Suit::Three,
+        });
+
+        assert_eq!(possible_future_rewards(&fireworks, &discard), 17);
+
+        discard.add(Card {
+            color: Color::Red,
+            suit: Suit::Five,
+        });
+
+        assert_eq!(possible_future_rewards(&fireworks, &discard), 16);
+
+        fireworks[Color::Blue as usize] = 2;
+
+        assert_eq!(possible_future_rewards(&fireworks, &discard), 14);
     }
 }

@@ -4,8 +4,9 @@ use crate::rand::SeedableRng;
 use std::time::Instant;
 
 pub struct Node<E: Env + Clone> {
-    pub parent: usize,                     // 8 bytes
-    pub public_info: E::PublicInfo,        // 32 bytes
+    pub parent: usize,              // 8 bytes
+    pub public_info: E::PublicInfo, // 32 bytes
+    pub private_info: Option<E::PrivateInfo>,
     pub terminal: bool,                    // 1 byte
     pub expanded: bool,                    // 1 byte
     pub my_action: bool,                   // 1 byte

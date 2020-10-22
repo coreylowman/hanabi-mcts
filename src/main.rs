@@ -11,52 +11,35 @@ use crate::rand::prelude::SliceRandom;
 use crate::rand::rngs::StdRng;
 use crate::rand::SeedableRng;
 
-fn rollout(
-    mut public_info: PublicInfo,
-    mut my_private: PrivateInfo,
+fn rollout_single_determinization(
+    public_info: PublicInfo,
+    my_private: PrivateInfo,
     mut rng: &mut StdRng,
 ) -> (Action, f32) {
-    let mut env = HanabiEnv::determinize(&public_info, &my_private, &mut rng);
+    let (mut env, prob) = HanabiEnv::determinize(&public_info, &my_private, &mut rng);
     let action = *env.actions().choose(&mut rng).unwrap();
     env.step(&action, &mut rng);
-    public_info = env.public_info();
-    assert_eq!(env.private_info(false), my_private);
-    let mut op_private = env.private_info(true);
 
-    let mut my_turn = false;
-
-    loop {
-        if public_info.is_over() {
-            break;
-        }
-
-        if my_turn {
-            env = HanabiEnv::determinize(&public_info, &my_private, &mut rng);
-            env.step(env.actions().choose(&mut rng).unwrap(), &mut rng);
-            public_info = env.public_info();
-            assert_eq!(env.private_info(false), my_private);
-            op_private = env.private_info(true);
-        } else {
-            env = HanabiEnv::determinize(&public_info, &op_private, &mut rng);
-            env.step(env.actions().choose(&mut rng).unwrap(), &mut rng);
-            public_info = env.public_info();
-            assert_eq!(env.private_info(false), op_private);
-            my_private = env.private_info(true);
-        }
-
-        my_turn = !my_turn;
+    while !env.is_over() {
+        env.step(env.actions().choose(&mut rng).unwrap(), &mut rng);
     }
 
-    (action, public_info.reward())
+    (action, prob * env.reward())
 }
 
-fn policy(public_info: PublicInfo, private_info: PrivateInfo, mut rng: &mut StdRng) -> Action {
+fn policy<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
+    public_info: PublicInfo,
+    private_info: PrivateInfo,
+    rollout_fn: &F,
+    num_rollouts: usize,
+    mut rng: &mut StdRng,
+) -> Action {
     let mut actions = Vec::new();
     let mut rewards = Vec::new();
     let mut visits = Vec::new();
 
-    for _ in 0..10_000 {
-        let (action, reward) = rollout(public_info.clone(), private_info.clone(), &mut rng);
+    for _ in 0..num_rollouts {
+        let (action, reward) = rollout_fn(public_info.clone(), private_info.clone(), &mut rng);
 
         match actions.iter().position(|&a| a == action) {
             Some(i) => {
@@ -89,37 +72,53 @@ fn policy(public_info: PublicInfo, private_info: PrivateInfo, mut rng: &mut StdR
     actions[best_i]
 }
 
-fn describe_game() {
+fn describe_game<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
+    rollout_fn: &F,
+    num_rollouts: usize,
+) {
     let mut rng = StdRng::seed_from_u64(0);
 
-    loop {
-        let mut env = HanabiEnv::new(&mut rng);
+    let mut env = HanabiEnv::random(&mut rng);
+    env.describe();
+    println!();
+
+    while !env.is_over() {
+        let action = policy(
+            env.public_info(),
+            env.private_info(true),
+            rollout_fn,
+            num_rollouts,
+            &mut rng,
+        );
+        println!();
+        env.describe();
+        println!("{:?}", action);
+        env.step(&action, &mut rng);
         env.describe();
         println!();
-
-        while !env.is_over() {
-            let action = policy(env.public_info(), env.private_info(true), &mut rng);
-            println!();
-            env.describe();
-            println!("{:?}", action);
-            env.step(&action, &mut rng);
-            env.describe();
-            println!();
-        }
-        println!("{} {}", env.reward(), env.fireworks.iter().sum::<u8>());
     }
+    println!("{} {}", env.reward(), env.fireworks.iter().sum::<u8>());
 }
 
-fn evaluate() {
+fn evaluate<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
+    rollout_fn: &F,
+    num_rollouts: usize,
+) {
     let mut rng = StdRng::seed_from_u64(0);
 
     let mut rewards = Vec::new();
 
-    loop {
-        let mut env = HanabiEnv::new(&mut rng);
+    for _ in 0..100 {
+        let mut env = HanabiEnv::random(&mut rng);
 
         while !env.is_over() {
-            let action = policy(env.public_info(), env.private_info(true), &mut rng);
+            let action = policy(
+                env.public_info(),
+                env.private_info(true),
+                rollout_fn,
+                num_rollouts,
+                &mut rng,
+            );
             env.step(&action, &mut rng);
         }
 
@@ -144,6 +143,6 @@ fn main() {
     println!("PrivateInfo {}", std::mem::size_of::<PrivateInfo>());
     println!();
 
-    // describe_game();
-    evaluate();
+    // describe_game(&rollout_single_determinization, 50_000);
+    evaluate(&rollout_single_determinization, 50_000);
 }
