@@ -11,6 +11,8 @@ use crate::rand::prelude::SliceRandom;
 use crate::rand::rngs::StdRng;
 use crate::rand::SeedableRng;
 
+use std::time::Instant;
+
 fn rollout_single_determinization(
     public_info: PublicInfo,
     my_private: PrivateInfo,
@@ -134,6 +136,33 @@ fn evaluate<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
     }
 }
 
+fn rollout_speed<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
+    rollout_fn: &F,
+    num_rollouts: usize,
+) {
+    let mut rng = StdRng::seed_from_u64(0);
+    let env = HanabiEnv::random(&mut rng);
+    let public_info = env.public_info();
+    let private_info = env.private_info(true);
+
+    let mut times = Vec::new();
+    loop {
+        let start = Instant::now();
+
+        for _ in 0..num_rollouts {
+            rollout_fn(public_info.clone(), private_info.clone(), &mut rng);
+        }
+
+        let elapsed = start.elapsed().as_millis() as f32;
+        times.push(elapsed);
+        times.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mean_time = times.iter().sum::<f32>() / times.len() as f32;
+        let median_time = times[times.len() / 2];
+        println!("mean={}ms | median={}ms", mean_time, median_time);
+    }
+}
+
 fn main() {
     println!("Card {}", std::mem::size_of::<Card>());
     println!("Hint {}", std::mem::size_of::<Hint>());
@@ -144,5 +173,6 @@ fn main() {
     println!();
 
     // describe_game(&rollout_single_determinization, 50_000);
-    evaluate(&rollout_single_determinization, 50_000);
+    // evaluate(&rollout_single_determinization, 50_000);
+    rollout_speed(&rollout_single_determinization, 50_000);
 }
