@@ -29,7 +29,7 @@ const COLORS: [Color; 5] = [
 ];
 const SUITS: [Suit; 5] = [Suit::One, Suit::Two, Suit::Three, Suit::Four, Suit::Five];
 
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Card {
     id: u8,
 }
@@ -135,12 +135,15 @@ impl Card {
     }
 }
 
+impl std::fmt::Debug for Card {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&format!("{:?} {}", self.color(), self.suit_id() + 1))
+    }
+}
+
 impl std::fmt::Debug for Hint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("Hint")
-            .field(&format!("{:05b}", self.color))
-            .field(&format!("{:05b}", self.suit))
-            .finish()
+        f.write_str(&format!("Hint({:05b} {:05b})", self.color, self.suit))
     }
 }
 
