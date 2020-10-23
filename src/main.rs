@@ -81,8 +81,6 @@ fn describe_game<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
     let mut rng = StdRng::seed_from_u64(0);
 
     let mut env = HanabiEnv::random(&mut rng);
-    env.describe();
-    println!();
 
     while !env.is_over() {
         let action = policy(
