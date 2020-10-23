@@ -31,8 +31,7 @@ const SUITS: [Suit; 5] = [Suit::One, Suit::Two, Suit::Three, Suit::Four, Suit::F
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct Card {
-    color: Color,
-    suit: Suit,
+    id: u8,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -89,7 +88,7 @@ pub struct PublicInfo {
 
 impl Card {
     fn id(&self) -> u8 {
-        Card::parts_id(self.color as u8, self.suit as u8)
+        self.id
     }
 
     fn parts_id(color: u8, suit: u8) -> u8 {
@@ -97,34 +96,42 @@ impl Card {
     }
 
     fn from_parts(color: u8, suit: u8) -> Card {
-        let color = match color {
+        Card {
+            id: Card::parts_id(color, suit),
+        }
+    }
+
+    fn from_id(id: u8) -> Card {
+        Card { id: id }
+    }
+
+    fn color_id(&self) -> u8 {
+        self.id / 5
+    }
+    fn suit_id(&self) -> u8 {
+        self.id % 5
+    }
+
+    fn color(&self) -> Color {
+        match self.color_id() {
             0 => Color::White,
             1 => Color::Red,
             2 => Color::Blue,
             3 => Color::Yellow,
             4 => Color::Green,
             _ => panic!(),
-        };
+        }
+    }
 
-        let suit = match suit {
+    fn suit(&self) -> Suit {
+        match self.suit_id() {
             0 => Suit::One,
             1 => Suit::Two,
             2 => Suit::Three,
             3 => Suit::Four,
             4 => Suit::Five,
             _ => panic!(),
-        };
-
-        Card {
-            color: color,
-            suit: suit,
         }
-    }
-
-    fn from_id(id: u8) -> Card {
-        let c = id / 5;
-        let s = id % 5;
-        Card::from_parts(c, s)
     }
 }
 
@@ -162,8 +169,8 @@ impl Hint {
     }
 
     fn matches(&self, card: Card) -> bool {
-        let color_bit = 1 << card.color as usize;
-        let suit_bit = 1 << card.suit as usize;
+        let color_bit = 1 << card.color_id();
+        let suit_bit = 1 << card.suit_id();
         self.color & color_bit == color_bit && self.suit & suit_bit == suit_bit
     }
 }
@@ -211,7 +218,7 @@ impl CardCollection {
     fn remove_fireworks(&mut self, fireworks: &[u8; 5]) {
         for color_i in 0..5u8 {
             for suit_i in 0..fireworks[color_i as usize] {
-                self.remove(Card::from_id((color_i * 5 + suit_i) as u8));
+                self.remove(Card::from_parts(color_i, suit_i));
             }
         }
     }
@@ -537,7 +544,7 @@ impl Env for HanabiEnv {
                 let num_of_color = self
                     .opponent_hand
                     .iter()
-                    .filter(|c| c.is_some() && c.unwrap().color == color)
+                    .filter(|c| c.is_some() && c.unwrap().color() == color)
                     .count();
                 if num_of_color > 0 {
                     actions.push(Action::ColorHint(color));
@@ -549,7 +556,7 @@ impl Env for HanabiEnv {
                 let num_in_suit = self
                     .opponent_hand
                     .iter()
-                    .filter(|c| c.is_some() && c.unwrap().suit == suit)
+                    .filter(|c| c.is_some() && c.unwrap().suit() == suit)
                     .count();
                 if num_in_suit > 0 {
                     actions.push(Action::SuitHint(suit));
@@ -565,7 +572,7 @@ impl Env for HanabiEnv {
             &Action::ColorHint(color) => {
                 for i in 0..5 {
                     if let Some(card) = self.opponent_hand[i] {
-                        if card.color == color {
+                        if card.color() == color {
                             self.opponent_hints[i] = self.opponent_hints[i].map(|mut h| {
                                 h.set_true_color(color);
                                 h
@@ -583,7 +590,7 @@ impl Env for HanabiEnv {
             &Action::SuitHint(suit) => {
                 for i in 0..5 {
                     if let Some(card) = self.opponent_hand[i] {
-                        if card.suit == suit {
+                        if card.suit() == suit {
                             self.opponent_hints[i] = self.opponent_hints[i].map(|mut h| {
                                 h.set_true_suit(suit);
                                 h
@@ -604,10 +611,10 @@ impl Env for HanabiEnv {
                     .choose(&mut rng)
                     .unwrap();
                 let card = self.player_hand[i].unwrap();
-                if self.fireworks[card.color as usize] == (card.suit as u8) {
-                    self.fireworks[card.color as usize] += 1;
+                if self.fireworks[card.color_id() as usize] == card.suit_id() {
+                    self.fireworks[card.color_id() as usize] += 1;
 
-                    if self.fireworks[card.color as usize] == 5 {
+                    if self.fireworks[card.color_id() as usize] == 5 {
                         self.blue_tokens += 1;
                         if self.blue_tokens > 8 {
                             self.blue_tokens = 8;
