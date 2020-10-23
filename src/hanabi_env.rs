@@ -37,8 +37,8 @@ pub struct Card {
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct Hint {
-    color: [bool; 5],
-    suit: [bool; 5],
+    color: u8,
+    suit: u8,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -131,22 +131,8 @@ impl Card {
 impl std::fmt::Debug for Hint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_tuple("Hint")
-            .field(
-                &self
-                    .color
-                    .iter()
-                    .map(|&b| (b as u8).to_string())
-                    .collect::<Vec<String>>()
-                    .join(""),
-            )
-            .field(
-                &self
-                    .suit
-                    .iter()
-                    .map(|&b| (b as u8).to_string())
-                    .collect::<Vec<String>>()
-                    .join(""),
-            )
+            .field(&format!("{:05b}", self.color))
+            .field(&format!("{:05b}", self.suit))
             .finish()
     }
 }
@@ -154,35 +140,31 @@ impl std::fmt::Debug for Hint {
 impl Hint {
     fn empty() -> Self {
         Self {
-            color: [true; 5],
-            suit: [true; 5],
+            color: 0b11111,
+            suit: 0b11111,
         }
     }
 
     fn set_true_color(&mut self, color: Color) {
-        for i in 0..5 {
-            self.color[i] = false;
-        }
-        self.color[color as usize] = true;
+        self.color = 1 << color as usize;
     }
 
     fn disable_color(&mut self, color: Color) {
-        self.color[color as usize] = false;
+        self.color &= !(1 << color as usize);
     }
 
     fn set_true_suit(&mut self, suit: Suit) {
-        for i in 0..5 {
-            self.suit[i] = false;
-        }
-        self.suit[suit as usize] = true;
+        self.suit = 1 << suit as usize;
     }
 
     fn disable_suit(&mut self, suit: Suit) {
-        self.suit[suit as usize] = false;
+        self.suit &= !(1 << suit as usize);
     }
 
     fn matches(&self, card: Card) -> bool {
-        self.color[card.color as usize] && self.suit[card.suit as usize]
+        let color_bit = 1 << card.color as usize;
+        let suit_bit = 1 << card.suit as usize;
+        self.color & color_bit == color_bit && self.suit & suit_bit == suit_bit
     }
 }
 
