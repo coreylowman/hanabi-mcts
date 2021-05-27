@@ -9,7 +9,7 @@ pub trait HasReward {
     fn reward(&self) -> Self::Reward;
 }
 
-pub trait Env: HasEnd + HasReward {
+pub trait Env: HasEnd + HasReward + Clone {
     type PublicInfo: HasEnd + HasReward + Clone;
     type PrivateInfo: Clone;
     type Action;

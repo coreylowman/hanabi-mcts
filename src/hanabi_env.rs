@@ -50,9 +50,12 @@ pub enum Action {
 
 #[derive(Copy, Clone)]
 pub struct CardCollection {
-    total: u8,
-    counts: [u8; 25],
+    pub total: u8,
+    pub counts: [u8; 25],
 }
+
+#[derive(Copy, Clone)]
+pub struct Fireworks(pub [u8; 5]);
 
 #[derive(Clone)]
 pub struct HanabiEnv {
@@ -64,7 +67,7 @@ pub struct HanabiEnv {
     pub discard: CardCollection,
     pub blue_tokens: u8,
     pub black_tokens: u8,
-    pub fireworks: [u8; 5],
+    pub fireworks: Fireworks,
     pub last_round: bool,
     pub last_round_turns_taken: u8,
 }
@@ -81,9 +84,45 @@ pub struct PublicInfo {
     pub discard: CardCollection,
     pub blue_tokens: u8,
     pub black_tokens: u8,
-    pub fireworks: [u8; 5],
+    pub fireworks: Fireworks,
     pub last_round: bool,
     pub last_round_turns_taken: u8,
+}
+
+impl Color {
+    fn from_id(id: u8) -> Self {
+        match id {
+            0 => Color::White,
+            1 => Color::Red,
+            2 => Color::Blue,
+            3 => Color::Yellow,
+            4 => Color::Green,
+            _ => panic!(),
+        }
+    }
+
+    fn short_name(&self) -> &str {
+        match self {
+            Color::White => "W",
+            Color::Blue => "B",
+            Color::Red => "R",
+            Color::Yellow => "Y",
+            Color::Green => "G",
+        }
+    }
+}
+
+impl Suit {
+    fn from_id(id: u8) -> Self {
+        match id {
+            0 => Suit::One,
+            1 => Suit::Two,
+            2 => Suit::Three,
+            3 => Suit::Four,
+            4 => Suit::Five,
+            _ => panic!(),
+        }
+    }
 }
 
 impl Card {
@@ -91,13 +130,13 @@ impl Card {
         Card::from_parts(color as u8, suit as u8)
     }
 
-    fn from_parts(color: u8, suit: u8) -> Card {
+    pub fn from_parts(color: u8, suit: u8) -> Card {
         Card {
             id: Card::parts_id(color, suit),
         }
     }
 
-    fn from_id(id: u8) -> Card {
+    pub fn from_id(id: u8) -> Card {
         Card { id: id }
     }
 
@@ -105,11 +144,11 @@ impl Card {
         Card { id: 26 }
     }
 
-    fn id(&self) -> u8 {
+    pub fn id(&self) -> u8 {
         self.id
     }
 
-    fn parts_id(color: u8, suit: u8) -> u8 {
+    pub fn parts_id(color: u8, suit: u8) -> u8 {
         color * 5 + suit
     }
 
@@ -117,7 +156,7 @@ impl Card {
         self.id == 26
     }
 
-    fn is_some(&self) -> bool {
+    pub fn is_some(&self) -> bool {
         !self.is_none()
     }
 
@@ -129,42 +168,93 @@ impl Card {
     }
 
     fn color(&self) -> Color {
-        match self.color_id() {
-            0 => Color::White,
-            1 => Color::Red,
-            2 => Color::Blue,
-            3 => Color::Yellow,
-            4 => Color::Green,
-            _ => panic!(),
-        }
+        Color::from_id(self.color_id())
     }
 
     fn suit(&self) -> Suit {
-        match self.suit_id() {
-            0 => Suit::One,
-            1 => Suit::Two,
-            2 => Suit::Three,
-            3 => Suit::Four,
-            4 => Suit::Five,
-            _ => panic!(),
-        }
+        Suit::from_id(self.suit_id())
     }
 }
 
 impl std::fmt::Debug for Card {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("{:?} {}", self.color(), self.suit_id() + 1))
+        f.write_str(&format!(
+            "{}{}",
+            self.color().short_name(),
+            self.suit_id() + 1
+        ))
     }
 }
 
 impl std::fmt::Debug for Hint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("Hint({:05b} {:05b})", self.color, self.suit))
+        f.write_str("Hint(")?;
+        for &color in COLORS.iter() {
+            if self.matches_color(color) {
+                f.write_str(color.short_name())?;
+            } else {
+                f.write_str(" ")?;
+            }
+        }
+        f.write_str(",")?;
+        for &suit in SUITS.iter() {
+            if self.matches_suit(suit) {
+                f.write_str(&(suit as u8 + 1).to_string())?;
+            } else {
+                f.write_str(" ")?;
+            }
+        }
+        f.write_str(")")
+    }
+}
+
+impl std::fmt::Debug for Fireworks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("[")?;
+        for color_i in 0..4 {
+            f.write_str(Color::from_id(color_i).short_name())?;
+            if self.0[color_i as usize] == 0 {
+                f.write_str(" ")?;
+            } else {
+                f.write_str(&self.0[color_i as usize].to_string())?;
+            }
+            f.write_str(" ")?;
+        }
+        f.write_str(Color::from_id(4).short_name())?;
+        if self.0[4] == 0 {
+            f.write_str(" ")?;
+        } else {
+            f.write_str(&self.0[4].to_string())?;
+        }
+        f.write_str("]")
+    }
+}
+
+impl Fireworks {
+    fn empty() -> Self {
+        Self([0; 5])
+    }
+
+    pub fn total(&self) -> u8 {
+        self.0.iter().sum::<u8>()
+    }
+
+    fn accepts(&self, card: Card) -> bool {
+        self.0[card.color_id() as usize] == card.suit_id()
+    }
+
+    fn add_card(&mut self, card: Card) {
+        assert!(self.accepts(card));
+        self.0[card.color_id() as usize] = card.suit_id() + 1;
+    }
+
+    fn is_color_complete(&self, color: Color) -> bool {
+        self.0[color as usize] == 5
     }
 }
 
 impl Hint {
-    fn empty() -> Self {
+    pub fn empty() -> Self {
         Self {
             color: 0b011111,
             suit: 0b011111,
@@ -182,30 +272,38 @@ impl Hint {
         self.color == 0b100000 || self.suit == 0b100000
     }
 
-    fn is_some(&self) -> bool {
+    pub fn is_some(&self) -> bool {
         !self.is_none()
     }
 
-    fn set_true_color(&mut self, color: Color) {
+    pub fn set_true_color(&mut self, color: Color) {
         self.color = 1 << color as usize;
     }
 
-    fn disable_color(&mut self, color: Color) {
+    pub fn disable_color(&mut self, color: Color) {
         self.color &= !(1 << color as usize);
     }
 
-    fn set_true_suit(&mut self, suit: Suit) {
+    pub fn set_true_suit(&mut self, suit: Suit) {
         self.suit = 1 << suit as usize;
     }
 
-    fn disable_suit(&mut self, suit: Suit) {
+    pub fn disable_suit(&mut self, suit: Suit) {
         self.suit &= !(1 << suit as usize);
     }
 
-    fn matches(&self, card: Card) -> bool {
-        let color_bit = 1 << card.color_id();
-        let suit_bit = 1 << card.suit_id();
-        self.color & color_bit == color_bit && self.suit & suit_bit == suit_bit
+    fn matches_color(&self, color: Color) -> bool {
+        let color_bit = 1 << color as u8;
+        self.color & color_bit == color_bit
+    }
+
+    fn matches_suit(&self, suit: Suit) -> bool {
+        let suit_bit = 1 << suit as u8;
+        self.suit & suit_bit == suit_bit
+    }
+
+    pub fn matches(&self, card: Card) -> bool {
+        self.matches_color(card.color()) && self.matches_suit(card.suit())
     }
 }
 
@@ -217,7 +315,7 @@ impl CardCollection {
         }
     }
 
-    fn starting_deck() -> Self {
+    pub fn starting_deck() -> Self {
         Self {
             total: 50,
             counts: [
@@ -241,7 +339,7 @@ impl CardCollection {
         card
     }
 
-    fn remove_hand(&mut self, hand: &[Card; 5]) {
+    pub fn remove_hand(&mut self, hand: &[Card; 5]) {
         for &opt_card in hand.iter() {
             if opt_card.is_some() {
                 self.remove(opt_card);
@@ -249,15 +347,15 @@ impl CardCollection {
         }
     }
 
-    fn remove_fireworks(&mut self, fireworks: &[u8; 5]) {
+    pub fn remove_fireworks(&mut self, fireworks: &Fireworks) {
         for color_i in 0..5u8 {
-            for suit_i in 0..fireworks[color_i as usize] {
+            for suit_i in 0..fireworks.0[color_i as usize] {
                 self.remove(Card::from_parts(color_i, suit_i));
             }
         }
     }
 
-    fn subtract(&mut self, other: &Self) {
+    pub fn subtract(&mut self, other: &Self) {
         self.total -= other.total;
         for i in 0..25 {
             self.counts[i] -= other.counts[i];
@@ -289,13 +387,30 @@ impl CardCollection {
         }
         let matched_card = matches.pop(&mut rng);
         if matched_card.is_some() {
+            let num_matches = matches.counts[matched_card.id() as usize] + 1;
             Some((
                 self.remove(matched_card),
-                1.0 / (matches.total + 1) as f32, // TODO for theory of mind, change this probabilty based on what they play
+                (num_matches as f32) / (matches.total + 1) as f32, // TODO for theory of mind, change this probabilty based on what they play
             ))
         } else {
             None
         }
+    }
+
+    fn num_of_suit(&self, suit: Suit) -> u8 {
+        let mut num = 0;
+        for color in 0..5 {
+            num += self.counts[5 * color + suit as usize];
+        }
+        num
+    }
+
+    fn num_of_color(&self, color: Color) -> u8 {
+        let mut num = 0;
+        for suit in 0..5 {
+            num += self.counts[5 * (color as usize) + suit];
+        }
+        num
     }
 }
 
@@ -371,12 +486,13 @@ impl HanabiEnv {
 
     pub fn describe(&self) {
         println!(
-            "Deck=|{}| Discard=|{}| Fireworks={:?} Blue={} Black={}",
+            "Deck=|{}| Discard=|{}| Fireworks={:?} Blue={} Black={} FutureReward={}",
             self.deck.total,
             self.discard.total,
             self.fireworks,
             self.blue_tokens,
             self.black_tokens,
+            possible_future_rewards(&self.fireworks, &self.discard),
         );
         println!("----- Me -----");
         println!("{:?}", self.player_hand);
@@ -400,7 +516,7 @@ impl HasEnd for PublicInfo {
     fn is_over(&self) -> bool {
         let num_player_cards = self.player_hints.iter().filter(|h| h.is_some()).count() as u8;
         let num_opponent_cards = self.opponent_hints.iter().filter(|h| h.is_some()).count() as u8;
-        let num_fireworks = self.fireworks.iter().sum::<u8>();
+        let num_fireworks = self.fireworks.total();
         self.black_tokens == 1
             || num_fireworks == 25
             || (self.discard.total + num_player_cards + num_opponent_cards + num_fireworks == 50
@@ -418,13 +534,13 @@ impl HasEnd for HanabiEnv {
     }
 }
 
-fn possible_future_rewards(fireworks: &[u8; 5], discard: &CardCollection) -> u8 {
+fn possible_future_rewards(fireworks: &Fireworks, discard: &CardCollection) -> u8 {
     let mut cards_in_play = CardCollection::starting_deck();
     cards_in_play.subtract(discard);
 
     let mut future_rewards = 0;
     for color in 0..5 {
-        let played_suit = fireworks[color];
+        let played_suit = fireworks.0[color];
         for suit in played_suit..5 {
             if cards_in_play.counts[Card::parts_id(color as u8, suit as u8) as usize] == 0 {
                 break;
@@ -439,7 +555,7 @@ impl HasReward for PublicInfo {
     type Reward = f32;
 
     fn reward(&self) -> Self::Reward {
-        let reward = (self.fireworks.iter().sum::<u8>() as f32) / 25.0;
+        let reward = (self.fireworks.total() as f32) / 25.0;
         let black_tokens = (self.black_tokens as f32 - 1.0) / 3.0;
         let future_reward = possible_future_rewards(&self.fireworks, &self.discard) as f32 / 25.0;
         reward + black_tokens * future_reward
@@ -511,7 +627,7 @@ impl Env for HanabiEnv {
             discard: CardCollection::empty(),
             blue_tokens: 8,
             black_tokens: 4,
-            fireworks: [0; 5],
+            fireworks: Fireworks::empty(),
             last_round: false,
             last_round_turns_taken: 0,
         }
@@ -635,11 +751,12 @@ impl Env for HanabiEnv {
                     .hint_matches(&self.player_hints, &hint)
                     .choose(&mut rng)
                     .unwrap();
-                let card = self.player_hand[i];
-                if self.fireworks[card.color_id() as usize] == card.suit_id() {
-                    self.fireworks[card.color_id() as usize] += 1;
 
-                    if self.fireworks[card.color_id() as usize] == 5 {
+                let card = self.player_hand[i];
+
+                if self.fireworks.accepts(card) {
+                    self.fireworks.add_card(card);
+                    if self.fireworks.is_color_complete(card.color()) {
                         self.blue_tokens += 1;
                         if self.blue_tokens > 8 {
                             self.blue_tokens = 8;
@@ -674,9 +791,12 @@ impl Env for HanabiEnv {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rand::prelude::SliceRandom;
+    use crate::rand::rngs::StdRng;
+    use crate::rand::SeedableRng;
     #[test]
     fn test_future_reward() {
-        let mut fireworks = [0; 5];
+        let mut fireworks = Fireworks::empty();
         let mut discard = CardCollection::empty();
 
         assert_eq!(possible_future_rewards(&fireworks, &discard), 25);
@@ -700,8 +820,90 @@ mod tests {
 
         assert_eq!(possible_future_rewards(&fireworks, &discard), 16);
 
-        fireworks[Color::Blue as usize] = 2;
+        fireworks.add_card(Card::new(Color::Blue, Suit::One));
+        fireworks.add_card(Card::new(Color::Blue, Suit::Two));
 
         assert_eq!(possible_future_rewards(&fireworks, &discard), 14);
+    }
+
+    #[test]
+    fn test_weird() {
+        let public_info = PublicInfo {
+            player_hints: [
+                Hint {
+                    color: 0b11110,
+                    suit: 0b00001,
+                },
+                Hint {
+                    color: 0b00001,
+                    suit: 0b01111,
+                },
+                Hint {
+                    color: 0b00001,
+                    suit: 0b10000,
+                },
+                Hint {
+                    color: 0b11111,
+                    suit: 0b01111,
+                },
+                Hint {
+                    color: 0b11111,
+                    suit: 0b01111,
+                },
+            ],
+            opponent_hints: [
+                Hint {
+                    color: 0b00100,
+                    suit: 0b11111,
+                },
+                Hint {
+                    color: 0b11011,
+                    suit: 0b11111,
+                },
+                Hint {
+                    color: 0b00100,
+                    suit: 0b11111,
+                },
+                Hint {
+                    color: 0b11111,
+                    suit: 0b11111,
+                },
+                Hint {
+                    color: 0b11011,
+                    suit: 0b11111,
+                },
+            ],
+            discard: CardCollection::empty(),
+            blue_tokens: 7,
+            black_tokens: 2,
+            fireworks: Fireworks([1, 0, 0, 0, 1]),
+            last_round: false,
+            last_round_turns_taken: 0,
+        };
+        let private_info = PrivateInfo {
+            opponent_hand: [
+                Card::new(Color::Blue, Suit::Three),
+                Card::new(Color::Yellow, Suit::One),
+                Card::new(Color::Blue, Suit::One),
+                Card::new(Color::Yellow, Suit::One),
+                Card::new(Color::White, Suit::One),
+            ],
+        };
+        let mut rng = StdRng::seed_from_u64(0);
+        let r = public_info.reward();
+        for _ in 0..1000 {
+            let (op_info, p) =
+                HanabiEnv::sample_opponent_info(&public_info, &private_info, &mut rng);
+            let mut env = HanabiEnv::new(&public_info, &private_info, &op_info);
+            env.step(
+                &Action::Play(Hint {
+                    color: 0b00001,
+                    suit: 0b10000,
+                }),
+                &mut rng,
+            );
+            assert!(env.is_over());
+            assert_eq!(env.reward(), r);
+        }
     }
 }

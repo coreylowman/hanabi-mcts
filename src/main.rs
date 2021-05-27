@@ -3,6 +3,7 @@ extern crate rand;
 mod env;
 mod hanabi_env;
 // mod mcts;
+mod hanabi_distr;
 
 use env::{Env, HasEnd, HasReward};
 use hanabi_env::{Action, Card, CardCollection, HanabiEnv, Hint, PrivateInfo, PublicInfo};
@@ -38,19 +39,38 @@ fn policy<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
 ) -> Action {
     let mut actions = Vec::new();
     let mut rewards = Vec::new();
+    let mut upper = std::f32::NEG_INFINITY;
+    let mut lower = std::f32::INFINITY;
+    let mut child_upper = Vec::new();
+    let mut child_lower = Vec::new();
     let mut visits = Vec::new();
 
     for _ in 0..num_rollouts {
         let (action, reward) = rollout_fn(public_info.clone(), private_info.clone(), &mut rng);
 
+        if upper < reward {
+            upper = reward;
+        }
+        if lower > reward {
+            lower = reward;
+        }
+
         match actions.iter().position(|&a| a == action) {
             Some(i) => {
                 rewards[i] += reward;
                 visits[i] += 1;
+                if child_upper[i] < reward {
+                    child_upper[i] = reward;
+                }
+                if child_lower[i] > reward {
+                    child_lower[i] = reward;
+                }
             }
             None => {
                 actions.push(action);
                 rewards.push(reward);
+                child_lower.push(reward);
+                child_upper.push(reward);
                 visits.push(1);
             }
         }
@@ -60,15 +80,30 @@ fn policy<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
     let mut best_score = std::f32::NEG_INFINITY;
     for i in 0..rewards.len() {
         let total_reward = rewards[i];
-        let mean_reward = total_reward / visits[i] as f32;
+        // let mean_reward = total_reward / visits[i] as f32;
+        // // let ugape = child_upper[i] - lower;
+        // let mut B = std::f32::NEG_INFINITY;
+        // for j in 0..rewards.len() {
+        //     if i == j {
+        //         continue;
+        //     }
+        //     let ugap = child_upper[j] - child_lower[i];
+        //     if ugap > B {
+        //         B = ugap;
+        //     }
+        // }
         // println!(
-        //     "{:?}: {} ({} / {})",
-        //     actions[i], mean_reward, total_reward, visits[i],
+        //     "{:?}: {} / {} = {} | [{} {}]  | {}",
+        //     actions[i], total_reward, visits[i], mean_reward, child_lower[i], child_upper[i], B,
         // );
-        if mean_reward > best_score {
+        if total_reward > best_score {
+            best_score = total_reward;
             best_i = i;
-            best_score = mean_reward;
         }
+        // if ugape > best_score {
+        //     best_i = i;
+        //     best_score = ugape;
+        // }
     }
 
     actions[best_i]
@@ -92,12 +127,14 @@ fn describe_game<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
         );
         println!();
         env.describe();
-        println!("{:?}", action);
+        // println!();
+        // println!(">>> {:?}", action);
+        // println!();
         env.step(&action, &mut rng);
         env.describe();
         println!();
     }
-    println!("{} {}", env.reward(), env.fireworks.iter().sum::<u8>());
+    println!("{} {}", env.reward(), env.fireworks.total());
 }
 
 fn evaluate<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
@@ -122,7 +159,7 @@ fn evaluate<F: Fn(PublicInfo, PrivateInfo, &mut StdRng) -> (Action, f32)>(
             env.step(&action, &mut rng);
         }
 
-        rewards.push(env.fireworks.iter().sum::<u8>() as f32);
+        rewards.push(env.fireworks.total() as f32);
 
         let total_reward = rewards.iter().sum::<f32>();
         println!(
@@ -170,7 +207,7 @@ fn main() {
     println!("PrivateInfo {}", std::mem::size_of::<PrivateInfo>());
     println!();
 
-    // describe_game(&rollout_single_determinization, 50_000);
-    // evaluate(&rollout_single_determinization, 50_000);
-    rollout_speed(&rollout_single_determinization, 50_000);
+    // describe_game(&rollout_single_determinization, 500_000);
+    evaluate(&rollout_single_determinization, 50_000);
+    // rollout_speed(&rollout_single_determinization, 50_000);
 }
